@@ -8,7 +8,7 @@ from urlparse import urljoin
 ignore_words = set(['the', 'of', 'to', 'and', 'a', 'in', 'is', 'it'])
 
 
-class crawler:
+class Crawler(object):
     def __init__(self, dbname):
         self.conn = sqlite3.connect(dbname)
 
@@ -18,10 +18,10 @@ class crawler:
     def dbcommit(self):
         self.conn.commit()
 
-    def get_entry_id(self, table, field, value, createnew=True):
+    def get_entry_id(self, table, field, value, create_new=True):
         curs = self.conn.execute("select rowid from %s where %s = ?" % (table, field), (value,))
         res = curs.fetchone()
-        if res is None:
+        if res is None and create_new:
             curs = self.conn.execute("insert into %s (%s) values (?)" % (table, field), (value,))
             return curs.lastrowid
         else:
@@ -37,7 +37,7 @@ class crawler:
             word = words[i]
             if word in ignore_words:
                 continue
-            word_id = self.get_entry_id('url_list', 'url', url)
+            word_id = self.get_entry_id('word_list', 'word', word)
             self.conn.execute('insert into word_location (url_id, word_id, location) \
                                values (?, ?, ?)', (url_id, word_id, i))
 
@@ -118,3 +118,40 @@ class crawler:
         self.conn.execute('create index url_to_idx on link(to_id)')
         self.conn.execute('create index url_from_idx on link(from_id)')
         self.dbcommit()
+
+
+class Searcher(object):
+    def __init__(self, dbname):
+        self.conn = sqlite3.connect(dbname)
+
+    def __del__(self):
+        self.conn.close()
+
+    def get_match_rows(self, query):
+        fields = 'w0.url_id'
+        tables = ''
+        where_clauses = ''
+        word_ids = []
+        table_num = 0
+
+        for word in [w.lower() for w in query.split(' ') if w]:
+            curs = self.conn.execute("select rowid from word_list where word=?", (word,)).fetchone()
+            if curs is not None:
+                word_id = curs[0]
+                word_ids.append(word_id)
+                if table_num > 0:
+                    tables += ','
+                    where_clauses += ' and w%d.url_id=w%d.url_id and ' % (table_num - 1, table_num)
+                fields += ',w%d.location' % table_num
+                tables += 'word_location w%d' % table_num
+                where_clauses += 'w%d.word_id=%d' % (table_num, word_id)
+                table_num += 1
+
+        if not tables:
+            return
+
+        full_query = "select %s from %s where %s" % (fields, tables, where_clauses)
+        curs = self.conn.execute(full_query)
+        rows = [row for row in curs]
+
+        return rows, word_ids
