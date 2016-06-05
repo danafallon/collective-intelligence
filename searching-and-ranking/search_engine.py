@@ -155,3 +155,38 @@ class Searcher(object):
         rows = [row for row in curs]
 
         return rows, word_ids
+
+    def frequency_score(self, rows):
+        counts = dict((row[0], 0) for row in rows)
+        for row in rows:
+            counts[row[0]] += 1
+        return self.normalize_scores(counts)
+
+    def normalize_scores(self, scores, small_is_better=False):
+        vsmall = 0.00001    # Avoid division by zero errors
+        if small_is_better:
+            min_score = min(scores.values())
+            return dict((u, float(min_score) / max(vsmall, l)) for u, l in scores.items())
+        else:
+            max_score = max(scores.values() + [vsmall])
+            return dict((u, float(c) / max_score) for u, c in scores.items())
+
+    def get_scored_list(self, rows, word_ids):
+        total_scores = dict((row[0], 0) for row in rows)
+        weights = [(1.0, self.frequency_score(rows))]
+
+        for weight, scores in weights:
+            for url in total_scores:
+                total_scores[url] += weight * scores[url]
+
+        return total_scores
+
+    def get_url_name(self, id_):
+        return self.conn.execute('select url from url_list where rowid = ?', (id_,)).fetchone()[0]
+
+    def query(self, q):
+        rows, word_ids = self.get_match_rows(q)
+        scores = self.get_scored_list(rows, word_ids)
+        ranked_scores = sorted([(score, url) for url, score in scores.items()], reverse=1)
+        for score, url_id in ranked_scores[0:10]:
+            print '%f\t%s' % (score, self.get_url_name(url_id))
