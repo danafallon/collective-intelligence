@@ -162,6 +162,28 @@ class Searcher(object):
             counts[row[0]] += 1
         return self.normalize_scores(counts)
 
+    def location_score(self, rows):
+        locations = dict((row[0], 1000000) for row in rows)
+        for row in rows:
+            loc = sum(row[1:])
+            if loc < locations[row[0]]:
+                locations[row[0]] = loc
+
+        return self.normalize_scores(locations, small_is_better=True)
+
+    def distance_score(self, rows):
+        # If there's only one word, everyone wins!
+        if len(rows[0]) <= 2:
+            return dict((row[0], 1.0) for row in rows)
+
+        min_distances = dict((row[0], 1000000) for row in rows)
+        for row in rows:
+            dist = sum(abs(row[i] - row[i-1]) for i in range(2, len(row)))
+            if dist < min_distances[row[0]]:
+                min_distances[row[0]] = dist
+
+        return self.normalize_scores(min_distances, small_is_better=True)
+
     def normalize_scores(self, scores, small_is_better=False):
         vsmall = 0.00001    # Avoid division by zero errors
         if small_is_better:
@@ -173,7 +195,8 @@ class Searcher(object):
 
     def get_scored_list(self, rows, word_ids):
         total_scores = dict((row[0], 0) for row in rows)
-        weights = [(1.0, self.frequency_score(rows))]
+        weights = [(0.3, self.frequency_score(rows)), (0.5, self.location_score(rows)),
+                   (0.2, self.distance_score(rows))]
 
         for weight, scores in weights:
             for url in total_scores:
