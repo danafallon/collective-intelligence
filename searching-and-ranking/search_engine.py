@@ -136,7 +136,7 @@ class Searcher(object):
 
         for word in [w.lower() for w in query.split(' ') if w]:
             curs = self.conn.execute("select rowid from word_list where word=?", (word,)).fetchone()
-            if curs is not None:
+            if curs:
                 word_id = curs[0]
                 word_ids.append(word_id)
                 if table_num > 0:
@@ -152,7 +152,7 @@ class Searcher(object):
 
         full_query = "select %s from %s where %s" % (fields, tables, where_clauses)
         curs = self.conn.execute(full_query)
-        rows = [row for row in curs]
+        rows = [row for row in curs if curs is not None]
 
         return rows, word_ids
 
@@ -208,7 +208,16 @@ class Searcher(object):
         return self.conn.execute('select url from url_list where rowid = ?', (id_,)).fetchone()[0]
 
     def query(self, q):
-        rows, word_ids = self.get_match_rows(q)
+        if not q.strip():
+            print 'Empty query'
+            return
+
+        query_result = self.get_match_rows(q)
+        if not query_result:
+            print 'No results found'
+            return
+
+        rows, word_ids = query_result
         scores = self.get_scored_list(rows, word_ids)
         ranked_scores = sorted([(score, url) for url, score in scores.items()], reverse=1)
         for score, url_id in ranked_scores[0:10]:
