@@ -184,6 +184,13 @@ class Searcher(object):
 
         return self.normalize_scores(min_distances, small_is_better=True)
 
+    def inbound_link_score(self, rows):
+        unique_url_ids = set(row[0] for row in rows)
+        inbound_count = dict((u, self.conn.execute('select count(*) from link where to_id=?',
+                                                   (u,)).fetchone()[0])
+                             for u in unique_url_ids)
+        return self.normalize_scores(inbound_count)
+
     def normalize_scores(self, scores, small_is_better=False):
         vsmall = 0.00001    # Avoid division by zero errors
         if small_is_better:
@@ -195,8 +202,8 @@ class Searcher(object):
 
     def get_scored_list(self, rows, word_ids):
         total_scores = dict((row[0], 0) for row in rows)
-        weights = [(0.3, self.frequency_score(rows)), (0.5, self.location_score(rows)),
-                   (0.2, self.distance_score(rows))]
+        weights = [(0.3, self.frequency_score(rows)), (0.3, self.location_score(rows)),
+                   (0.2, self.distance_score(rows)), (0.2, self.inbound_link_score(rows))]
 
         for weight, scores in weights:
             for url in total_scores:
