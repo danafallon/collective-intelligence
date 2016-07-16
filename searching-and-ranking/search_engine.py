@@ -119,6 +119,30 @@ class Crawler(object):
         self.conn.execute('create index url_from_idx on link(from_id)')
         self.dbcommit()
 
+    def calculate_pagerank(self, iterations=20):
+        self.conn.execute('drop table if exists pagerank')
+        self.conn.execute('create table pagerank(url_id primary key, score)')
+
+        # initialize every url with a pagerank of 1
+        self.conn.execute('insert into pagerank select rowid, 1.0 from url_list')
+        self.dbcommit()
+
+        for i in range(iterations):
+            print "Iteration %d" % (i)
+            for (url_id,) in self.conn.execute('select rowid from url_list'):
+                pagerank = 0.15    # minimum value
+                linkers = self.conn.execute('select distinct from_id from link where to_id=?',
+                                            (url_id,))
+                for (linker_id,) in linkers:
+                    linker_pagerank = self.conn.execute(
+                        'select score from pagerank where url_id=?', (linker_id,)).fetchone()[0]
+                    linker_num_links = self.conn.execute(
+                        'select count(*) from link where from_id=?', (linker_id,)).fetchone()[0]
+                    pagerank += 0.85 * (linker_pagerank / linker_num_links)
+                    self.conn.execute('update pagerank set score=? where url_id=?',
+                                      (pagerank, url_id))
+                self.dbcommit()
+
 
 class Searcher(object):
     def __init__(self, dbname):
@@ -186,24 +210,31 @@ class Searcher(object):
 
     def inbound_link_score(self, rows):
         unique_url_ids = set(row[0] for row in rows)
-        inbound_count = dict((u, self.conn.execute('select count(*) from link where to_id=?',
-                                                   (u,)).fetchone()[0])
-                             for u in unique_url_ids)
-        return self.normalize_scores(inbound_count)
+        inbound_counts = dict((u, self.conn.execute('select count(*) from link where to_id=?',
+                                                    (u,)).fetchone()[0])
+                              for u in unique_url_ids)
+        return self.normalize_scores(inbound_counts)
+
+    def pagerank_score(self, rows):
+        pageranks = dict((row[0], self.conn.execute('select score from pagerank where url_id=?',
+                                                    (row[0],)).fetchone()[0])
+                         for row in rows)
+        max_rank = max(pageranks.values())
+        return self.normalize_scores(pageranks)
 
     def normalize_scores(self, scores, small_is_better=False):
         vsmall = 0.00001    # Avoid division by zero errors
         if small_is_better:
             min_score = min(scores.values())
-            return dict((u, float(min_score) / max(vsmall, l)) for u, l in scores.items())
+            return dict((u, float(min_score) / max(vsmall, l)) for u, l in scores.iteritems())
         else:
             max_score = max(scores.values() + [vsmall])
-            return dict((u, float(c) / max_score) for u, c in scores.items())
+            return dict((u, float(c) / max_score) for u, c in scores.iteritems())
 
     def get_scored_list(self, rows, word_ids):
         total_scores = dict((row[0], 0) for row in rows)
         weights = [(0.3, self.frequency_score(rows)), (0.3, self.location_score(rows)),
-                   (0.2, self.distance_score(rows)), (0.2, self.inbound_link_score(rows))]
+                   (0.2, self.distance_score(rows)), (0.2, self.pagerank_score(rows))]
 
         for weight, scores in weights:
             for url in total_scores:
