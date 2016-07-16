@@ -219,8 +219,19 @@ class Searcher(object):
         pageranks = dict((row[0], self.conn.execute('select score from pagerank where url_id=?',
                                                     (row[0],)).fetchone()[0])
                          for row in rows)
-        max_rank = max(pageranks.values())
         return self.normalize_scores(pageranks)
+
+    def link_text_score(self, rows, word_ids):
+        link_scores = dict((row[0], 0) for row in rows)
+        q = """select link.from_id, link.to_id from link_words, link where word_id=?
+               and link_words.link_id=link.rowid"""
+        for word_id in word_ids:
+            for (from_id, to_id) in self.conn.execute(q, (word_id,)):
+                if to_id in link_scores:
+                    pr = self.conn.execute('select score from pagerank where url_id=?',
+                                           (from_id,)).fetchone()[0]
+                    link_scores[to_id] += pr
+        return self.normalize_scores(link_scores)
 
     def normalize_scores(self, scores, small_is_better=False):
         vsmall = 0.00001    # Avoid division by zero errors
@@ -233,8 +244,9 @@ class Searcher(object):
 
     def get_scored_list(self, rows, word_ids):
         total_scores = dict((row[0], 0) for row in rows)
-        weights = [(0.3, self.frequency_score(rows)), (0.3, self.location_score(rows)),
-                   (0.2, self.distance_score(rows)), (0.2, self.pagerank_score(rows))]
+        weights = [(0.3, self.frequency_score(rows)), (0.2, self.location_score(rows)),
+                   (0.2, self.distance_score(rows)), (0.2, self.pagerank_score(rows)),
+                   (0.1, self.link_text_score(rows, word_ids))]
 
         for weight, scores in weights:
             for url in total_scores:
