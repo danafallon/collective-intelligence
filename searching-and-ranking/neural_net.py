@@ -38,3 +38,21 @@ class SearchNet(object):
                               (from_id, to_id, strength))
         else:
             self.conn.execute('update %s set strength=? where rowid=?' % table, (strength, rowid))
+
+    def generate_hidden_node(self, word_ids, url_ids):
+        if len(word_ids) > 3:
+            return None
+        # check if we already created a node for this set of words
+        create_key = '_'.join(sorted([str(wi) for wi in word_ids]))
+        res = self.conn.execute('select rowid from hidden_node where create_key=?',
+                                (create_key,)).fetchone()
+        if res is None:
+            curs = self.conn.execute('insert into hidden_node (create_key) values (?)',
+                                     (create_key,))
+            hidden_id = curs.lastrowid
+            # put in some default weights
+            for word_id in word_ids:
+                self.set_strength(word_id, hidden_id, 0, 1.0 / len(word_ids))
+            for url_id in url_ids:
+                self.set_strength(hidden_id, url_id, 1, 0.1)
+            self.conn.commit()
