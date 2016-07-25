@@ -57,10 +57,9 @@ class Crawler(object):
         return [s.lower() for s in splitter.split(text) if s]
 
     def is_indexed(self, url):
-        u = self.conn.execute("select rowid from url_list where url = ?", (url,)).fetchone()
+        u = self.conn.execute("select rowid from url_list where url=?", (url,)).fetchone()
         if u:
-            v = self.conn.execute("select * from word_location where url_id=?", (u[0],)).fetchone()
-            if v:
+            if self.conn.execute("select * from word_location where url_id=?", (u[0],)).fetchone():
                 return True
         return False
 
