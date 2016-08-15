@@ -4,6 +4,7 @@ import sqlite3
 import urllib2
 from urlparse import urljoin
 
+import neural_net
 
 ignore_words = set(['the', 'of', 'to', 'and', 'a', 'in', 'is', 'it'])
 
@@ -232,6 +233,14 @@ class Searcher(object):
                     link_scores[to_id] += pr
         return self.normalize_scores(link_scores)
 
+    def neural_net_score(self, rows, word_ids):
+        net = neural_net.SearchNet('neural_net.db')
+        # get unique url ids as an ordered list
+        url_ids = [url_id for url_id in set(row[0] for row in rows)]
+        nn_res = net.get_result(word_ids, url_ids)
+        scores = dict((url_ids[i], nn_res[i]) for i in range(len(url_ids)))
+        return self.normalize_scores(scores)
+
     def normalize_scores(self, scores, small_is_better=False):
         vsmall = 0.00001    # Avoid division by zero errors
         if small_is_better:
@@ -245,7 +254,8 @@ class Searcher(object):
         total_scores = dict((row[0], 0) for row in rows)
         weights = [(0.3, self.frequency_score(rows)), (0.2, self.location_score(rows)),
                    (0.2, self.distance_score(rows)), (0.2, self.pagerank_score(rows)),
-                   (0.1, self.link_text_score(rows, word_ids))]
+                   (0.1, self.link_text_score(rows, word_ids)),
+                   (0.3, self.neural_net_score(rows, word_ids))]
 
         for weight, scores in weights:
             for url in total_scores:
@@ -271,3 +281,4 @@ class Searcher(object):
         ranked_scores = sorted([(score, url) for url, score in scores.items()], reverse=1)
         for score, url_id in ranked_scores[0:10]:
             print '%f\t%s' % (score, self.get_url_name(url_id))
+        return word_ids, [r[1] for r in ranked_scores[0:10]]
